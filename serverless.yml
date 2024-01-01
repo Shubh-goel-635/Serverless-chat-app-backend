@@ -1,0 +1,119 @@
+service: serverless-chat
+
+frameworkVersion: "3"
+
+provider:
+  name: aws
+  runtime: nodejs18.x
+
+  environment:
+    WSSAPIGATEWAYENDPOINT:
+      Fn::Join:
+        - ""
+        - - Ref: WebsocketsApi
+          - ".execute-api."
+          - Ref: AWS::Region
+          - ".amazonaws.com/${sls:stage}"
+  
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - "dynamodb:PutItem"
+            - "dynamodb:GetItem"
+            - "dynamodb:DeleteItem"
+            - "dynamodb:Scan"
+          Resource:
+            - { "Fn::GetAtt": ["ChatConnectionsTable", "Arn"] }
+        - Effect: Allow
+          Action:
+            - "dynamodb:Query"
+          Resource:
+            Fn::Join:
+              - "/"
+              - - { "Fn::GetAtt": ["ChatConnectionsTable", "Arn"] }
+                - "index"
+                - "*"
+        - Effect: Allow
+          Action:
+            - "dynamodb:PutItem"
+            - "dynamodb:GetItem"
+            - "dynamodb:DeleteItem"
+            - "dynamodb:Scan"
+          Resource:
+            - { "Fn::GetAtt": ["ChatMessagesTable", "Arn"] }
+        - Effect: Allow
+          Action:
+            - "dynamodb:Query"
+          Resource:
+            Fn::Join:
+              - "/"
+              - - { "Fn::GetAtt": ["ChatMessagesTable", "Arn"] }
+                - "index"
+                - "*"
+
+functions:
+  websocketHandler:
+    handler: src/handlers.handle
+    events: 
+      - websocket:
+          route: $connect
+      - websocket:
+          route: $disconnect
+      - websocket:
+          route: getAllConnections
+      - websocket:
+          route: sendMessage
+      - websocket:
+          route: getAllMessages
+      - websocket:
+          route: deleteChat
+
+
+plugins:
+  - serverless-plugin-typescript
+resources:
+  Resources:
+    ChatConnectionsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ChatConnections
+        ProvisionedThroughput:
+          ReadCapacityUnits: 5
+          WriteCapacityUnits: 5
+        AttributeDefinitions:
+          - AttributeName: connectionId
+            AttributeType: S
+          - AttributeName: groupId
+            AttributeType: S
+        KeySchema:
+          - AttributeName: connectionId
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          - IndexName: GroupIdIndex
+            KeySchema:
+              - AttributeName: groupId
+                KeyType: HASH
+            ProvisionedThroughput:
+              ReadCapacityUnits: 5
+              WriteCapacityUnits: 5
+            Projection:
+              ProjectionType: ALL
+    ChatMessagesTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ChatMessages
+        ProvisionedThroughput:
+          ReadCapacityUnits: 5
+          WriteCapacityUnits: 5
+        AttributeDefinitions:
+          - AttributeName: groupId
+            AttributeType: S
+          - AttributeName: timeStamp
+            AttributeType: N
+        KeySchema:
+          - AttributeName: groupId
+            KeyType: HASH
+          - AttributeName: timeStamp
+            KeyType: RANGE
